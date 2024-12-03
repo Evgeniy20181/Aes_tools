@@ -2,28 +2,12 @@
 using System.Diagnostics;
 using System.Security.Cryptography;
 using System.Text;
-using System.Text.Json;
-
-public class EncryptionConfig
-{
-    public string? Salt { get; set; }
-    public string? IV { get; set; }
-
-    public override string ToString()
-    {
-        return $"Config data\nSalt: {Salt}\nIV: {IV}";
-    }
-}
 
 public class Program {
+    
     static void Main(string[] args) {
         Console.WriteLine("Starting AES encryption/decryption tool!");
         Stopwatch timer = new Stopwatch();
-
-        string configFilePath = "config.json";
-        var config = Aes_tools.LoadOrGenerateConfig(configFilePath);
-
-        Console.WriteLine(config);
 
         string password;
         do
@@ -36,9 +20,6 @@ public class Program {
                 Console.WriteLine("Password must be at least 8 characters long. Please try again.");
             }
         } while (password.Length < 8);
-
-        byte[] aesKey = Aes_tools.DeriveKey(password, config.Salt!, 600000, 32);
-        Console.WriteLine($"AES Key: {Convert.ToBase64String(aesKey)}");
         while (true){
         Console.WriteLine("\n\n\n\n\n\n");
         Console.WriteLine("Select an action:");
@@ -57,41 +38,35 @@ public class Program {
         }
 
         string outputFilePath = Aes_tools.GenerateOutputFilePath(filePath, action);
-
-        using (Aes aes = Aes.Create())
+        timer.Start();
+        if (action == "1")
         {
-            aes.Key = aesKey;
-            aes.IV = Convert.FromBase64String(config.IV!);
-            timer.Start();
-            if (action == "1")
-            {
-                Console.WriteLine("Encrypting the file...");
-                Aes_tools.EncryptFile(filePath, outputFilePath, aes);
-                Console.WriteLine($"File encrypted: {outputFilePath}");
-            }
-            else if (action == "2")
-            {
-                Console.WriteLine("Decrypting the file...");
-                Aes_tools.DecryptFile(filePath, outputFilePath, aes);
-                Console.WriteLine($"File decrypted: {outputFilePath}");
-            }
-            else
-            {
-                Console.WriteLine("Invalid action selection!");
-            }
-            timer.Stop();
-            Console.WriteLine($"Time used: {timer.Elapsed}");
-            Console.WriteLine($"Time used: {timer.ElapsedMilliseconds} ms");
+            Console.WriteLine("Encrypting the file...");
+            Aes_tools.EncryptFile(filePath, outputFilePath,password);
+            Console.WriteLine($"File encrypted: {outputFilePath}");
         }
+        else if (action == "2")
+        {
+            Console.WriteLine("Decrypting the file...");
+            Aes_tools.DecryptFile(filePath, outputFilePath,password);
+            Console.WriteLine($"File decrypted: {outputFilePath}");
+        }
+        else
+        {
+            Console.WriteLine("Invalid action selection!");
+        }
+        timer.Stop();
+        Console.WriteLine($"Time used: {timer.Elapsed}");
+        Console.WriteLine($"Time used: {timer.ElapsedMilliseconds} ms");
         }
     }
 }
 
 
 
-
-
 static class Aes_tools {
+
+    const Int32 pbkdf2_iter = 700000;
 
     //Encrypt data
     internal static byte[]? Encrypt (Aes aes, string data) {
@@ -148,34 +123,59 @@ static class Aes_tools {
             return null;
         }
     }
-
-    internal static void EncryptFile(string inputFilePath, string outputFilePath, Aes aes)
+internal static void EncryptFile(string inputFilePath, string outputFilePath, string password)
+{
+    using (Aes aes = Aes.Create())
     {
-        using (FileStream inputFileStream = new FileStream(inputFilePath, FileMode.OpenOrCreate, FileAccess.Read))
+        // Generate salt and IV
+        byte[] salt = GenerateSalt(16);
+        aes.GenerateIV();  // Generate a new IV for this encryption
+        aes.Key = DeriveKey(password, salt, pbkdf2_iter, 32);
+        Console.WriteLine("[INFO] File AES key: " + Convert.ToBase64String(aes.Key));
+
         using (FileStream outputFileStream = new FileStream(outputFilePath, FileMode.Create, FileAccess.Write))
-        using (CryptoStream cryptoStream = new CryptoStream(outputFileStream, aes.CreateEncryptor(), CryptoStreamMode.Write))
         {
-            inputFileStream.CopyTo(cryptoStream); 
-            cryptoStream.FlushFinalBlock();
+            // Write Salt (16 bytes) and IV (16 bytes) to the file
+            outputFileStream.Write(salt, 0, salt.Length);
+            outputFileStream.Write(aes.IV, 0, aes.IV.Length);
+
+            using (CryptoStream cryptoStream = new CryptoStream(outputFileStream, aes.CreateEncryptor(), CryptoStreamMode.Write))
+            using (FileStream inputFileStream = new FileStream(inputFilePath, FileMode.Open, FileAccess.Read))
+            {
+                inputFileStream.CopyTo(cryptoStream);
+                cryptoStream.FlushFinalBlock();
+            }
         }
     }
+}
 
-    internal static void DecryptFile(string inputFilePath, string outputFilePath, Aes aes)
+internal static void DecryptFile(string inputFilePath, string outputFilePath, string pass)
+{
+    using (FileStream inputFileStream = new FileStream(inputFilePath, FileMode.Open, FileAccess.Read))
     {
-        using (FileStream inputFileStream = new FileStream(inputFilePath, FileMode.OpenOrCreate, FileAccess.Read))
-        using (FileStream outputFileStream = new FileStream(outputFilePath, FileMode.Create, FileAccess.Write))
-        using (CryptoStream cryptoStream = new CryptoStream(inputFileStream, aes.CreateDecryptor(), CryptoStreamMode.Read))
+        // Read Salt (16 bytes) and IV (16 bytes) from the file
+        byte[] salt = new byte[16];
+        byte[] iv = new byte[16];
+
+        inputFileStream.Read(salt, 0, salt.Length);
+        inputFileStream.Read(iv, 0, iv.Length);
+
+        using (Aes aes = Aes.Create())
         {
-            cryptoStream.CopyTo(outputFileStream); // Копируем данные из расшифрованного потока в выходной файл
+            aes.Key = DeriveKey(pass, salt, pbkdf2_iter, 32);
+            aes.IV = iv;
+
+            Console.WriteLine("[INFO] File AES key: " + Convert.ToBase64String(aes.Key));
+
+            using (FileStream outputFileStream = new FileStream(outputFilePath, FileMode.Create, FileAccess.Write))
+            using (CryptoStream cryptoStream = new CryptoStream(inputFileStream, aes.CreateDecryptor(), CryptoStreamMode.Read))
+            {
+                cryptoStream.CopyTo(outputFileStream); // Keep the file input stream for decryption
+            }
         }
     }
-
+}
     // Load settings
-    internal static EncryptionConfig? LoadConfig(string configFilePath)
-    {
-        string json = File.ReadAllText(configFilePath);
-        return JsonSerializer.Deserialize<EncryptionConfig>(json);
-    }
     internal static byte[] GenerateSalt(int length)
     {
         using (var rng = RandomNumberGenerator.Create())  // Microsoft crypto generator
@@ -186,46 +186,15 @@ static class Aes_tools {
         }
     }
 
-    internal static byte[] DeriveKey(string password, string salt, int iterations, int keyLength)
+    internal static byte[] DeriveKey(string password, byte[] salt, int iterations, int keyLength)
     {
-        using (var pbkdf2 = new Rfc2898DeriveBytes(password, Encoding.UTF8.GetBytes(salt), iterations, HashAlgorithmName.SHA256))
+        using (var pbkdf2 = new Rfc2898DeriveBytes(password, salt, iterations, HashAlgorithmName.SHA256))
         {
             return pbkdf2.GetBytes(keyLength);
         }
     }
 
-    internal static EncryptionConfig LoadOrGenerateConfig(string configFilePath)
-    {
-        if (File.Exists(configFilePath))
-        {
-            Console.WriteLine("[INFO] Config. file exist! Trying to get config....");
-            return LoadConfig(configFilePath) ?? GenerateAndSaveConfig(configFilePath);
-        }
 
-        Console.WriteLine("[ERROR] File not found! Creating new one!");
-        return GenerateAndSaveConfig(configFilePath);
-    }
-
-    internal static EncryptionConfig GenerateAndSaveConfig(string configFilePath)
-    {
-        string newSalt = Convert.ToBase64String(GenerateSalt(16));
-        using (Aes aes = Aes.Create())
-        {
-            string newIV = Convert.ToBase64String(aes.IV);
-
-            var newConfig = new EncryptionConfig
-            {
-                Salt = newSalt,
-                IV = newIV
-            };
-
-            string json = JsonSerializer.Serialize(newConfig, new JsonSerializerOptions { WriteIndented = true });
-            File.WriteAllText(configFilePath, json);
-
-            Console.WriteLine("[OK] New config file created! You can freely share this config.");
-            return newConfig;
-        }
-    }
     internal static string GenerateOutputFilePath(string originalFilePath, string? action)
     {
         string directory = Path.GetDirectoryName(originalFilePath) ?? string.Empty;
