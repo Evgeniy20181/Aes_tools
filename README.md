@@ -1,4 +1,5 @@
 # Aes_tool
+[![.NET](https://github.com/Evgeniy20181/Aes_tools/actions/workflows/dotnet.yml/badge.svg)](https://github.com/Evgeniy20181/Aes_tools/actions/workflows/dotnet.yml)
 
 Here’s a sample `README.md` file for your project:
 
