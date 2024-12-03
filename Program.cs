@@ -42,13 +42,19 @@ public class Program {
         if (action == "1")
         {
             Console.WriteLine("Encrypting the file...");
+            try {
             Aes_tools.EncryptFile(filePath, outputFilePath,password);
+            }
+            catch (Exception ex) { Console.WriteLine(ex.Message);}
             Console.WriteLine($"File encrypted: {outputFilePath}");
         }
         else if (action == "2")
         {
             Console.WriteLine("Decrypting the file...");
+            try{
             Aes_tools.DecryptFile(filePath, outputFilePath,password);
+            }
+            catch (Exception ex) { Console.WriteLine(ex.Message);}
             Console.WriteLine($"File decrypted: {outputFilePath}");
         }
         else
